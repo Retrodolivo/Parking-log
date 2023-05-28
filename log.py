@@ -3,8 +3,127 @@ import math
 from datetime import datetime
 from tabulate import tabulate
 
-def parse_raw_logs(record_list):
+actions = {'NO_ACTION': {'log_val': 1,
+                         'text': 'НЕТ ДЕЙСТВИЯ'},
+           'LOCK_IDLE': {'log_val': 2,
+                         'text': 'ПАРКОВКА ЗАКРЫЛАСЬ'},
+           'UNLOCK_IDLE': {'log_val': 3,
+                           'text': 'ПАРКОВКА ОТКРЫЛАСЬ'},
+           'LOCK_CELL': {'log_val': 4,
+                         'text': 'ЯЧЕЙКА ЗАКРЫЛАСЬ'},
+           'UNLOCK_CELL': {'log_val': 5,
+                           'text': 'ЯЧЕЙКА ОТКРЫЛАСЬ'},
+           'NO_ACCESS_IN_IDLE': {'log_val': 50,
+                                 'text': 'НЕТ ДОСТУПА - КАРТА НЕИЗВЕСТНА'},
+           'NO_ACCESS_NO_NET': {'log_val': 51,
+                                'text': 'НЕТ ДОСТУПА - ОШИБКА СЕТИ'},
+           'NO_NET': {'log_val': 52,
+                      'text': 'ОШИБКА СЕТИ'},
+           }
+# 1.Timestamp(32bit);
+# 2.CardID(32bit);
+# 3.Index(16bit);
+# 4.Action(8bit);
+# 5.Cell_num(8bit).
+log_record = {'Timestamp': {'size': 4,
+                            'val': 0},
+              'CardID': {'size': 4,
+                         'val': 0},
+              'Index': {'size': 2,
+                        'val': 0},
+              'Action': {'size': 1,
+                         'val': 0},
+              'Cell_num': {'size': 1,
+                           'val': 0}
+              }
+# Set according to expected log data arrangement
+flash = {'total pages': 0,
+         'bytes per page': 2048,
+         'records per page': 0,
+         'bytes per record': sum(d['size'] for d in log_record.values() if d),
+         'record arrangement': ('Timestamp', 'CardID', 'Index', 'Action', 'Cell_num')
+         }
+flash['records per page'] = math.floor(flash['bytes per page'] / flash['bytes per record'])
 
+flash_list = []
+flash_str = b''
+dev_sernum = 0
+
+
+def main():
+    global log_record
+    global flash
+    global flash_list
+    global flash_str
+    global dev_sernum
+
+    # get binary string then convert it to list
+    f = open('flash.bin', 'rb')
+    flash_str = f.read()
+    f.close()
+    flash['total pages'] = math.floor(len(flash_str) / flash['bytes per page'])
+    if flash['total pages'] < 1:
+        print("bin file should be at least 1 page size")
+    else:
+        flash_list.extend(flash_str)
+        log_record_list = []
+        for page in range(flash['total pages']):
+            for record in retrieve_log_records_from_page(page):
+                log_record_list.append(record)
+        print(*log_record_list, sep='\n')
+        print_records(log_record_list)
+
+
+    # # Serial connection config
+    # ser = serial.Serial()
+    # ser.port = 'COM12'
+    # ser.baudrate = 115200
+    # ser.bytesize = serial.EIGHTBITS
+    # ser.parity = serial.PARITY_NONE
+    # ser.stopbits = serial.STOPBITS_ONE
+    # ser.timeout = None
+    # ser.open()
+    # print('\rConnected' if ser.is_open else '\rDisconnected')
+    #
+    # # Download data page by page
+    # if ser.is_open:
+    #     ser.flush()
+    #     # Str command to device
+    #     command = b'logs'
+    #     ser.write(command)
+    #     dev_sernum = int.from_bytes(ser.read(1), 'little', signed=False)
+    #     flash['total pages'] = int.from_bytes(ser.read(1), 'little', signed=False)
+    #     print('total pages: %d' % flash['total pages'])
+    #     print('downloading...')
+    #     for page in range(flash['total pages']):
+    #         print('page: %d' % (page + 1))
+    #         for record in range(flash['records per page']):
+    #             print('\rDone\n' if record == flash['records per page'] - 1
+    #                   else '\rrecord: %d out of %d' % (record + 1, flash['records per page']), end='')
+    #             for byte in range(flash['bytes per record']):
+    #                 flash_str += ser.read(1)
+    #
+    # raw_data_file = 'records.bin'
+    # f = open(raw_data_file, 'wb')
+    # f.write(flash_str)
+    # f.close()
+    # ser.close()
+    # print('\nConnected' if ser.is_open else '\nDisconnected')
+    # # decoding process#
+    # f = open(raw_data_file, 'rb')
+    # flash_list.extend(flash_str)
+    # log_record_list = []
+    # for page in range(flash['total pages']):
+    #     for record in retrieve_log_records_from_page(page):
+    #         log_record_list.append(record)
+    # print(*log_record_list, sep='\n')
+    # print_records(log_record_list)
+
+
+
+
+def parse_raw_logs(record_list):
+    global actions
     for record in record_list:
         ret_list = []
 
@@ -46,7 +165,9 @@ def parse_raw_logs(record_list):
 
         yield ret_list
 
+
 def print_records(log_record_list):
+    print('Серийный номер: %.4d\n' % dev_sernum)
     data = []
     for log in parse_raw_logs(log_record_list):
         data.append(log)
@@ -55,7 +176,12 @@ def print_records(log_record_list):
     output_f.write(tabulate(data, headers=['#', 'Дата и Время', 'Действие', 'Карта #', 'Ячейка #']))
     output_f.close()
 
+
 def retrieve_log_records_from_page(page):
+    global log_record
+    global flash
+    global flash_list
+    global flash_str
     temp_list = []  # log element parts would be stored there
     elem_pos = {'start': 0, 'end': 0}
     for record in range(flash['records per page']):
@@ -65,7 +191,7 @@ def retrieve_log_records_from_page(page):
         for elem in flash['record arrangement']:
             elem_pos['start'] = offset + record * flash['bytes per record']
             elem_pos['end'] = offset + log_record[elem]['size'] + record * flash['bytes per record']
-            temp_list.extend(data_list[elem_pos['start']:elem_pos['end']])
+            temp_list.extend(flash_list[elem_pos['start']:elem_pos['end']])
             offset += log_record[elem]['size']
 
             for byte in range(log_record[elem]['size']):
@@ -73,104 +199,6 @@ def retrieve_log_records_from_page(page):
             temp_list.clear()
         yield ret_dict
 
-actions = {'NO_ACTION': {'log_val': 1,
-                         'text': 'НЕТ ДЕЙСТВИЯ'},
-           'LOCK_IDLE': {'log_val': 2,
-                         'text': 'ПАРКОВКА ЗАКРЫЛАСЬ'},
-           'UNLOCK_IDLE': {'log_val': 3,
-                           'text': 'ПАРКОВКА ОТКРЫЛАСЬ'},
-           'LOCK_CELL': {'log_val': 4,
-                         'text': 'ЯЧЕЙКА ЗАКРЫЛАСЬ'},
-           'UNLOCK_CELL': {'log_val' : 5,
-                           'text': 'ЯЧЕЙКА ОТКРЫЛАСЬ'},
-           'NO_ACCESS_IN_IDLE': {'log_val': 50,
-                                 'text': 'НЕТ ДОСТУПА - КАРТА НЕИЗВЕСТНА'},
-           'NO_ACCESS_NO_NET': {'log_val': 51,
-                                'text': 'НЕТ ДОСТУПА - ОШИБКА СЕТИ'},
-           'NO_NET': {'log_val': 52,
-                                'text': 'ОШИБКА СЕТИ'},
-           }
-# 1.Timestamp(32bit);
-# 2.CardID(32bit);
-# 3.Index(16bit);
-# 4.Action(8bit);
-# 5.Cell_num(8bit).
-log_record = {'Timestamp': {'size': 4,
-                            'val': 0},
-              'CardID': {'size': 4,
-                         'val': 0},
-              'Index': {'size': 2,
-                        'val': 0},
-              'Action': {'size': 1,
-                         'val': 0},
-              'Cell_num': {'size': 1,
-                           'val': 0}
-              }
-# Set according to expected log data arrangement
-flash = {'total pages': 0,  # fill later via serial
-         'bytes per page': 2048,
-         'records per page': 0,
-         'bytes per record': 12,
-          # using by functions for correct parsing. MUST BE MAINTAINED IN CORRECT ORDER!
-         'record arrangement': ('Timestamp', 'CardID', 'Index', 'Action', 'Cell_num')
-}
-flash['bytes per record'] = sum(d['size'] for d in log_record.values() if d)
-flash['records per page'] = math.floor(flash['bytes per page'] / flash['bytes per record'])
-
 
 if __name__ == "__main__":
-    # Serial connection config
-    ser = serial.Serial()
-    ser.port = 'COM15'
-    ser.baudrate = 115200
-    ser.bytesize = serial.EIGHTBITS
-    ser.parity = serial.PARITY_NONE
-    ser.stopbits = serial.STOPBITS_ONE
-    ser.timeout = None
-    ser.open()
-    print('\rConnected' if ser.is_open else '\rDisconnected')
-    # Download data page by page
-    flash_storage = b''
-    if ser.is_open:
-        ser.flush()
-        # Str command to device
-        command = b'logs'
-        ser.write(command)
-        flash['total pages'] = int.from_bytes(ser.read(1), 'little', signed=False)
-        print('total pages: %d' % flash['total pages'])
-        print('downloading...')
-        for page in range(flash['total pages']):
-            print('page: %d' % (page + 1))
-            for record in range(flash['records per page']):
-                print('\rDone\n' if record == flash['records per page'] - 1
-                      else '\rrecord: %d out of %d' % (record + 1, flash['records per page']), end='')
-                for byte in range(flash['bytes per record']):
-                    flash_storage += ser.read(1)
-
-    raw_data_file = 'records.bin'
-    f = open(raw_data_file, 'wb')
-    f.write(flash_storage)
-    f.close()
-    ser.close()
-    print('\nConnected' if ser.is_open else '\nDisconnected')
-    #decoding process#
-    f = open(raw_data_file, 'rb')
-    data_list = []
-    data_list.extend(flash_storage)
-    log_record_list = []
-    for page in range(flash['total pages']):
-        for record in retrieve_log_records_from_page(page):
-            log_record_list.append(record)
-    print(*log_record_list, sep='\n')
-    print_records(log_record_list)
-
-
-    # get binary string then convert it to list
-    # dump_data = f.read()
-    # f.close()
-
-    #pages = len(data_list) / flash['bytes per page']
-    # if page is not full
-    # if math.floor(pages) == 0:
-    #     print("bin file should be at least 1 page size")
-    # else:
+    main()
