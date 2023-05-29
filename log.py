@@ -2,6 +2,20 @@ import serial
 import math
 from datetime import datetime
 from tabulate import tabulate
+import argparse
+import sys
+
+argParser = argparse.ArgumentParser(add_help=False)
+argParser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                       help='Script for gathering log data from Scooter Parking.'
+                            'There are 2 options of getting raw data:'
+                            '1. Download it via USB(vcp), but dont forget to provide port name before.  '
+                            '2. Provide raw flash binary file to script. It must comprise only log data part')
+argParser.add_argument("-p", "--port", help='Enter device port name. '
+                                            'Examples: Windows - "COMx"; Linux - "dev/ttyUSBx" x - port number.')
+argParser.add_argument("-f", "--file", help='add path to binary log data')
+args = argParser.parse_args()
+
 
 actions = {'NO_ACTION': {'log_val': 1,
                          'text': 'НЕТ ДЕЙСТВИЯ'},
@@ -45,73 +59,76 @@ flash_str = b''
 dev_sernum = 0
 
 
-def main():
+def main(option, arg):
     global log_record
     global flash
     global flash_list
     global flash_str
     global dev_sernum
 
-    # get binary string then convert it to list
-    f = open('flash.bin', 'rb')
-    flash_str = f.read()
-    f.close()
-    flash['total pages'] = math.floor(len(flash_str) / flash['bytes per page'])
-    if flash['total pages'] < 1:
-        print("bin file should be at least 1 page size")
-    else:
-        flash_list.extend(flash_str)
-        log_record_list = []
-        for page in range(flash['total pages']):
-            for record in retrieve_log_records_from_page(page):
-                log_record_list.append(record)
-        print(*log_record_list, sep='\n')
-        print_records(log_record_list)
+    match option:
+        case 'file':
+            # get binary string then convert it to list
+            f = open(arg, 'rb')
+            flash_str = f.read()
+            f.close()
+            flash['total pages'] = math.floor(len(flash_str) / flash['bytes per page'])
+            if flash['total pages'] < 1:
+                print("bin file should be at least 1 page size")
+            else:
+                flash_list.extend(flash_str)
+                log_record_list = []
+                for page in range(flash['total pages']):
+                    for record in retrieve_log_records_from_page(page):
+                        log_record_list.append(record)
+                print(*log_record_list, sep='\n')
+                print_records(log_record_list)
 
-    # # Serial connection config
-    # ser = serial.Serial()
-    # ser.port = 'COM12'
-    # ser.baudrate = 115200
-    # ser.bytesize = serial.EIGHTBITS
-    # ser.parity = serial.PARITY_NONE
-    # ser.stopbits = serial.STOPBITS_ONE
-    # ser.timeout = None
-    # ser.open()
-    # print('\rConnected' if ser.is_open else '\rDisconnected')
-    #
-    # # Download data page by page
-    # if ser.is_open:
-    #     ser.flush()
-    #     # Str command to device
-    #     command = b'logs'
-    #     ser.write(command)
-    #     dev_sernum = int.from_bytes(ser.read(1), 'little', signed=False)
-    #     flash['total pages'] = int.from_bytes(ser.read(1), 'little', signed=False)
-    #     print('total pages: %d' % flash['total pages'])
-    #     print('downloading...')
-    #     for page in range(flash['total pages']):
-    #         print('page: %d' % (page + 1))
-    #         for record in range(flash['records per page']):
-    #             print('\rDone\n' if record == flash['records per page'] - 1
-    #                   else '\rrecord: %d out of %d' % (record + 1, flash['records per page']), end='')
-    #             for byte in range(flash['bytes per record']):
-    #                 flash_str += ser.read(1)
-    #
-    # raw_data_file = 'records.bin'
-    # f = open(raw_data_file, 'wb')
-    # f.write(flash_str)
-    # f.close()
-    # ser.close()
-    # print('\nConnected' if ser.is_open else '\nDisconnected')
-    # # decoding process#
-    # f = open(raw_data_file, 'rb')
-    # flash_list.extend(flash_str)
-    # log_record_list = []
-    # for page in range(flash['total pages']):
-    #     for record in retrieve_log_records_from_page(page):
-    #         log_record_list.append(record)
-    # print(*log_record_list, sep='\n')
-    # print_records(log_record_list)
+        case 'port':
+            # Serial connection config
+            ser = serial.Serial()
+            ser.port = arg
+            ser.baudrate = 115200
+            ser.bytesize = serial.EIGHTBITS
+            ser.parity = serial.PARITY_NONE
+            ser.stopbits = serial.STOPBITS_ONE
+            ser.timeout = None
+            ser.open()
+            print('\rConnected' if ser.is_open else '\rDisconnected')
+
+            # Download data page by page
+            if ser.is_open:
+                ser.flush()
+                # Str command to device
+                command = b'logs'
+                ser.write(command)
+                dev_sernum = int.from_bytes(ser.read(1), 'little', signed=False)
+                print('Serial number: %.4d\n' % dev_sernum)
+                flash['total pages'] = int.from_bytes(ser.read(1), 'little', signed=False)
+                print('total pages: %d' % flash['total pages'])
+                print('downloading...')
+                for page in range(flash['total pages']):
+                    print('page: %d' % (page + 1))
+                    for record in range(flash['records per page']):
+                        print('\rDone\n' if record == flash['records per page'] - 1
+                              else '\rrecord: %d out of %d' % (record + 1, flash['records per page']), end='')
+                        for byte in range(flash['bytes per record']):
+                            flash_str += ser.read(1)
+            raw_data_file = 'records.bin'
+            f = open(raw_data_file, 'wb')
+            f.write(flash_str)
+            f.close()
+            ser.close()
+            print('\nConnected' if ser.is_open else '\nDisconnected')
+            # decoding process#
+            f = open(raw_data_file, 'rb')
+            flash_list.extend(flash_str)
+            log_record_list = []
+            for page in range(flash['total pages']):
+                for record in retrieve_log_records_from_page(page):
+                    log_record_list.append(record)
+            print(*log_record_list, sep='\n')
+            print_records(log_record_list)
 
 
 def parse_raw_logs(record_list):
@@ -178,4 +195,13 @@ def retrieve_log_records_from_page(page):
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 1:
+        argParser.print_help()
+    else:
+        option = ''
+        if args.port is not None:
+            option = 'port'
+            main(option, args.port)
+        elif args.file is not None:
+            option = 'file'
+            main(option, args.file)
