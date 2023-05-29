@@ -25,22 +25,17 @@ actions = {'NO_ACTION': {'log_val': 1,
 # 3.Index(16bit);
 # 4.Action(8bit);
 # 5.Cell_num(8bit).
-log_record = {'Timestamp': {'size': 4,
-                            'val': 0},
-              'CardID': {'size': 4,
-                         'val': 0},
-              'Index': {'size': 2,
-                        'val': 0},
-              'Action': {'size': 1,
-                         'val': 0},
-              'Cell_num': {'size': 1,
-                           'val': 0}
+log_record = {'Timestamp': {'size': 4},
+              'CardID': {'size': 4},
+              'Index': {'size': 2},
+              'Action': {'size': 1},
+              'Cell_num': {'size': 1}
               }
 # Set according to expected log data arrangement
 flash = {'total pages': 0,
          'bytes per page': 2048,
-         'records per page': 0,
          'bytes per record': sum(d['size'] for d in log_record.values() if d),
+         'records per page': 0,
          'record arrangement': ('Timestamp', 'CardID', 'Index', 'Action', 'Cell_num')
          }
 flash['records per page'] = math.floor(flash['bytes per page'] / flash['bytes per record'])
@@ -72,7 +67,6 @@ def main():
                 log_record_list.append(record)
         print(*log_record_list, sep='\n')
         print_records(log_record_list)
-
 
     # # Serial connection config
     # ser = serial.Serial()
@@ -120,37 +114,19 @@ def main():
     # print_records(log_record_list)
 
 
-
-
 def parse_raw_logs(record_list):
     global actions
     for record in record_list:
         ret_list = []
-
         index = record['Index']
         ret_list.append(index + 1)
-
         dt = datetime.fromtimestamp(record['Timestamp'])
         ret_list.append(dt)
 
-        action = record['Action']
-        match action:
-            case 1:
-                ret_list.append(actions['NO_ACTION']['text'])
-            case 2:
-                ret_list.append(actions['LOCK_IDLE']['text'])
-            case 3:
-                ret_list.append(actions['UNLOCK_IDLE']['text'])
-            case 4:
-                ret_list.append(actions['LOCK_CELL']['text'])
-            case 5:
-                ret_list.append(actions['UNLOCK_CELL']['text'])
-            case 50:
-                ret_list.append(actions['NO_ACCESS_IN_IDLE']['text'])
-            case 51:
-                ret_list.append(actions['NO_ACCESS_NO_NET']['text'])
-            case 52:
-                ret_list.append(actions['NO_NET']['text'])
+        for action in actions.keys():
+            if actions[action]['log_val'] == record['Action']:
+                ret_list.append(actions[action]['text'])
+                break
 
         card = record['CardID']
         ret_list.append(card)
@@ -197,6 +173,7 @@ def retrieve_log_records_from_page(page):
             for byte in range(log_record[elem]['size']):
                 ret_dict[elem] |= temp_list[byte] << 8 * byte
             temp_list.clear()
+
         yield ret_dict
 
 
