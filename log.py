@@ -79,7 +79,7 @@ def main(option, arg):
                 flash_list.extend(flash_str)
                 log_record_list = []
                 for page in range(flash['total pages']):
-                    for record in retrieve_log_records_from_page(page):
+                    for record in retrieve_log_records_from_page(page, True):
                         log_record_list.append(record)
                 print(*log_record_list, sep='\n')
                 print_records(log_record_list)
@@ -125,7 +125,7 @@ def main(option, arg):
             flash_list.extend(flash_str)
             log_record_list = []
             for page in range(flash['total pages']):
-                for record in retrieve_log_records_from_page(page):
+                for record in retrieve_log_records_from_page(page, False):
                     log_record_list.append(record)
             print(*log_record_list, sep='\n')
             print_records(log_record_list)
@@ -170,7 +170,7 @@ def print_records(log_record_list):
     output_f.close()
 
 
-def retrieve_log_records_from_page(page):
+def retrieve_log_records_from_page(page, is_raw_flash):
     global log_record
     global flash
     global flash_list
@@ -178,7 +178,10 @@ def retrieve_log_records_from_page(page):
     temp_list = []  # log element parts would be stored there
     elem_pos = {'start': 0, 'end': 0}
     for record in range(flash['records per page']):
-        offset = 0 + page * flash['records per page'] * flash['bytes per record']
+        if is_raw_flash:
+            offset = 0 + page * flash['bytes per page']
+        else:
+            offset = 0 + page * flash['records per page'] * flash['bytes per record']
         ret_dict = {'Timestamp': 0, 'CardID': 0, 'Index': 0, 'Action': 0, 'Cell_num': 0}
 
         for elem in flash['record arrangement']:
